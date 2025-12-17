@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Статистика{% endblock %}
+
+{% block content %}
+<header class="page-header">
+    <h2 class="page-title">Статистика отдела обслуживания</h2>
+</header>
+
+<section class="form-card" style="margin-bottom: 16px;">
+    <div class="kv-grid">
+        <div class="kv-key">Всего заявок</div>
+        <div class="kv-val">{{ stats.total_requests }}</div>
+
+        <div class="kv-key">Выполнено заявок</div>
+        <div class="kv-val">{{ stats.completed_requests }}</div>
+
+        <div class="kv-key">Среднее время ремонта (дни)</div>
+        <div class="kv-val">
+            {% if stats.average_repair_time_days is not none %}
+                {{ "{:.2f}".format(stats.average_repair_time_days) }}
+            {% else %}
+                —
+            {% endif %}
+        </div>
+    </div>
+</section>
+
+<section class="form-card" style="margin-bottom: 16px;">
+    <h3 style="margin-top: 0;">Статистика по типам оборудования</h3>
+    <table class="data-table" style="margin-top: 10px;">
+        <thead>
+        <tr>
+            <th>Тип оборудования</th>
+            <th class="cell-centered">Количество</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for k, v in stats.issues_by_equipment_type.items() %}
+        <tr>
+            <td>{{ k }}</td>
+            <td class="cell-centered">{{ v }}</td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="2" class="table-empty">Нет данных.</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+<section class="form-card">
+    <h3 style="margin-top: 0;">Статистика по типам неисправностей (по тексту проблемы)</h3>
+    <table class="data-table" style="margin-top: 10px;">
+        <thead>
+        <tr>
+            <th>Неисправность</th>
+            <th class="cell-centered">Количество</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for k, v in stats.issues_by_problem_description.items() %}
+        <tr>
+            <td>{{ k }}</td>
+            <td class="cell-centered">{{ v }}</td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="2" class="table-empty">Нет данных.</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Пользователи{% endblock %}
+
+{% block content %}
+<header class="page-header">
+    <h2 class="page-title">Пользователи</h2>
+</header>
+
+<table class="data-table">
+    <thead>
+    <tr>
+        <th>ID</th>
+        <th>ФИО</th>
+        <th>Телефон</th>
+        <th>Логин</th>
+        <th>Роль</th>
+    </tr>
+    </thead>
+    <tbody>
+    {% for u in users %}
+    <tr>
+        <td class="cell-centered">{{ u.id }}</td>
+        <td>{{ u.fio }}</td>
+        <td>{{ u.phone }}</td>
+        <td>{{ u.login }}</td>
+        <td>{{ u.role.name }}</td>
+    </tr>
+    {% else %}
+    <tr>
+        <td colspan="5" class="table-empty">Пользователи не найдены.</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

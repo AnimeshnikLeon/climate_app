@@ -1,0 +1,280 @@
+import csv
+import os
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+from sqlalchemy import create_engine
+from sqlalchemy import text
+
+from app.services import hash_password
+
+
+db_url = (
+    f"postgresql://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}"
+    f"@{os.getenv('POSTGRES_HOST', 'localhost')}:{os.getenv('POSTGRES_PORT', '5432')}"
+    f"/{os.getenv('POSTGRES_DB')}"
+)
+
+engine = create_engine(db_url, echo=False, future=True)
+
+root = Path(__file__).resolve().parent
+data_dir = Path("/app/data") if Path("/app/data").exists() else root.parent / "data"
+import_dir = data_dir / "import"
+
+
+def parse_nullable_date(value: str) -> Optional[str]:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    if raw.lower() == "null":
+        return None
+    try:
+        datetime.strptime(raw, "%Y-%m-%d")
+    except ValueError:
+        return None
+    return raw
+
+
+def parse_nullable_int(value: str) -> Optional[int]:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    if raw.lower() == "null":
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def read_csv(path: Path):
+    with path.open("r", encoding="utf-8") as f:
+        reader = csv.DictReader(f, delimiter=";")
+        return list(reader)
+
+
+def ensure_roles(conn):
+    roles = ["Менеджер", "Специалист", "Оператор", "Заказчик"]
+    for r in roles:
+        conn.execute(
+            text(
+                """
+                INSERT INTO user_role (name)
+                VALUES (:name)
+                ON CONFLICT (name) DO NOTHING
+                """
+            ),
+            {"name": r},
+        )
+
+
+def ensure_statuses(conn):
+    statuses = [
+        ("Новая заявка", False),
+        ("В процессе ремонта", False),
+        ("Ожидание комплектующих", False),
+        ("Готова к выдаче", True),
+        ("Завершена", True),
+    ]
+    for name, is_final in statuses:
+        conn.execute(
+            text(
+                """
+                INSERT INTO request_status (name, is_final)
+                VALUES (:name, :is_final)
+                ON CONFLICT (name) DO UPDATE SET is_final = EXCLUDED.is_final
+                """
+            ),
+            {"name": name, "is_final": is_final},
+        )
+
+
+def ensure_equipment_types(conn, requests_rows):
+    values = set()
+    for r in requests_rows:
+        values.add((r.get("climateTechType") or "").strip())
+    for name in sorted(v for v in values if v):
+        conn.execute(
+            text(
+                """
+                INSERT INTO equipment_type (name)
+                VALUES (:name)
+                ON CONFLICT (name) DO NOTHING
+                """
+            ),
+            {"name": name},
+        )
+
+
+def import_users(conn, users_rows):
+    for row in users_rows:
+        fio = (row.get("fio") or "").strip()
+        phone = (row.get("phone") or "").strip()
+        login = (row.get("login") or "").strip()
+        password = (row.get("password") or "").strip()
+        role_name = (row.get("type") or "").strip()
+
+        if not (fio and phone and login and password and role_name):
+            continue
+
+        role_id = conn.execute(
+            text("SELECT id FROM user_role WHERE name = :n"),
+            {"n": role_name},
+        ).scalar_one()
+
+        password_hash = hash_password(password=password)
+
+        conn.execute(
+            text(
+                """
+                INSERT INTO app_user (fio, phone, login, password_hash, role_id)
+                VALUES (:fio, :phone, :login, :password_hash, :role_id)
+                ON CONFLICT (login) DO UPDATE
+                SET fio = EXCLUDED.fio,
+                    phone = EXCLUDED.phone,
+                    password_hash = EXCLUDED.password_hash,
+                    role_id = EXCLUDED.role_id
+                """
+            ),
+            {
+                "fio": fio,
+                "phone": phone,
+                "login": login,
+                "password_hash": password_hash,
+                "role_id": role_id,
+            },
+        )
+
+
+def import_requests(conn, requests_rows):
+    for row in requests_rows:
+        start_date = parse_nullable_date(row.get("startDate"))
+        equipment_type = (row.get("climateTechType") or "").strip()
+        equipment_model = (row.get("climateTechModel") or "").strip()
+        problem = (row.get("problemDescryption") or "").strip()
+        status_name = (row.get("requestStatus") or "").strip()
+        completion_date = parse_nullable_date(row.get("completionDate"))
+        repair_parts = (row.get("repairParts") or "").strip() or None
+
+        master_src_id = parse_nullable_int(row.get("masterID"))
+        client_src_id = parse_nullable_int(row.get("clientID"))
+
+        if not (start_date and equipment_type and equipment_model and problem and status_name and client_src_id):
+            continue
+
+        equipment_type_id = conn.execute(
+            text("SELECT id FROM equipment_type WHERE name = :n"),
+            {"n": equipment_type},
+        ).scalar_one()
+
+        status_id = conn.execute(
+            text("SELECT id FROM request_status WHERE name = :n"),
+            {"n": status_name},
+        ).scalar_one()
+
+        client_id = conn.execute(
+            text("SELECT id FROM app_user WHERE id = :id"),
+            {"id": client_src_id},
+        ).scalar_one()
+
+        master_id: Optional[int] = None
+        if master_src_id is not None:
+            master_id = conn.execute(
+                text("SELECT id FROM app_user WHERE id = :id"),
+                {"id": master_src_id},
+            ).scalar_one_or_none()
+
+        conn.execute(
+            text(
+                """
+                INSERT INTO repair_request (
+                    id, start_date, equipment_type_id, equipment_model,
+                    problem_description, status_id, completion_date,
+                    repair_parts, master_id, client_id
+                )
+                VALUES (
+                    :id, :start_date, :equipment_type_id, :equipment_model,
+                    :problem_description, :status_id, :completion_date,
+                    :repair_parts, :master_id, :client_id
+                )
+                ON CONFLICT (id) DO UPDATE
+                SET start_date = EXCLUDED.start_date,
+                    equipment_type_id = EXCLUDED.equipment_type_id,
+                    equipment_model = EXCLUDED.equipment_model,
+                    problem_description = EXCLUDED.problem_description,
+                    status_id = EXCLUDED.status_id,
+                    completion_date = EXCLUDED.completion_date,
+                    repair_parts = EXCLUDED.repair_parts,
+                    master_id = EXCLUDED.master_id,
+                    client_id = EXCLUDED.client_id
+                """
+            ),
+            {
+                "id": int(row.get("requestID")),
+                "start_date": start_date,
+                "equipment_type_id": equipment_type_id,
+                "equipment_model": equipment_model,
+                "problem_description": problem,
+                "status_id": status_id,
+                "completion_date": completion_date,
+                "repair_parts": repair_parts,
+                "master_id": master_id,
+                "client_id": client_id,
+            },
+        )
+
+
+def import_comments(conn, comments_rows):
+    for row in comments_rows:
+        message = (row.get("message") or "").strip()
+        master_id = parse_nullable_int(row.get("masterID"))
+        request_id = parse_nullable_int(row.get("requestID"))
+
+        if not (message and master_id and request_id):
+            continue
+
+        conn.execute(
+            text(
+                """
+                INSERT INTO request_comment (id, request_id, master_id, message)
+                VALUES (:id, :request_id, :master_id, :message)
+                ON CONFLICT (id) DO UPDATE
+                SET request_id = EXCLUDED.request_id,
+                    master_id = EXCLUDED.master_id,
+                    message = EXCLUDED.message
+                """
+            ),
+            {
+                "id": int(row.get("commentID")),
+                "request_id": request_id,
+                "master_id": master_id,
+                "message": message,
+            },
+        )
+
+
+def main():
+    print("Connecting to DB:", db_url)
+    users_path = import_dir / "inputDataUsers.csv"
+    requests_path = import_dir / "inputDataRequests.csv"
+    comments_path = import_dir / "inputDataComments.csv"
+
+    users_rows = read_csv(users_path)
+    requests_rows = read_csv(requests_path)
+    comments_rows = read_csv(comments_path)
+
+    with engine.begin() as conn:
+        ensure_roles(conn=conn)
+        ensure_statuses(conn=conn)
+        ensure_equipment_types(conn=conn, requests_rows=requests_rows)
+
+        import_users(conn=conn, users_rows=users_rows)
+        import_requests(conn=conn, requests_rows=requests_rows)
+        import_comments(conn=conn, comments_rows=comments_rows)
+
+    print("Import finished.")
+
+
+if __name__ == "__main__":
+    main()

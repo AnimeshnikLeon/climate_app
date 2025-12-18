@@ -8,6 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 
 from app.services import hash_password
+from app.services import normalize_issue_type_name
 
 
 db_url = (
@@ -25,9 +26,7 @@ import_dir = data_dir / "import"
 
 def parse_nullable_date(value: str) -> Optional[str]:
     raw = (value or "").strip()
-    if not raw:
-        return None
-    if raw.lower() == "null":
+    if not raw or raw.lower() == "null":
         return None
     try:
         datetime.strptime(raw, "%Y-%m-%d")
@@ -38,9 +37,7 @@ def parse_nullable_date(value: str) -> Optional[str]:
 
 def parse_nullable_int(value: str) -> Optional[int]:
     raw = (value or "").strip()
-    if not raw:
-        return None
-    if raw.lower() == "null":
+    if not raw or raw.lower() == "null":
         return None
     try:
         return int(raw)
@@ -107,6 +104,49 @@ def ensure_equipment_types(conn, requests_rows):
         )
 
 
+def ensure_issue_types(conn, requests_rows):
+    values = set()
+    for r in requests_rows:
+        values.add(normalize_issue_type_name(r.get("problemDescryption") or ""))
+    for name in sorted(v for v in values if v):
+        conn.execute(
+            text(
+                """
+                INSERT INTO issue_type (name)
+                VALUES (:name)
+                ON CONFLICT (name) DO NOTHING
+                """
+            ),
+            {"name": name},
+        )
+
+
+def ensure_equipment_models(conn, requests_rows):
+    pairs = set()
+    for r in requests_rows:
+        eq_type = (r.get("climateTechType") or "").strip()
+        model = (r.get("climateTechModel") or "").strip()
+        if eq_type and model:
+            pairs.add((eq_type, model))
+
+    for eq_type, model in sorted(pairs):
+        eq_type_id = conn.execute(
+            text("SELECT id FROM equipment_type WHERE name = :n"),
+            {"n": eq_type},
+        ).scalar_one()
+
+        conn.execute(
+            text(
+                """
+                INSERT INTO equipment_model (equipment_type_id, name)
+                VALUES (:equipment_type_id, :name)
+                ON CONFLICT (equipment_type_id, name) DO NOTHING
+                """
+            ),
+            {"equipment_type_id": eq_type_id, "name": model},
+        )
+
+
 def import_users(conn, users_rows):
     for row in users_rows:
         fio = (row.get("fio") or "").strip()
@@ -128,16 +168,18 @@ def import_users(conn, users_rows):
         conn.execute(
             text(
                 """
-                INSERT INTO app_user (fio, phone, login, password_hash, role_id)
-                VALUES (:fio, :phone, :login, :password_hash, :role_id)
-                ON CONFLICT (login) DO UPDATE
+                INSERT INTO app_user (id, fio, phone, login, password_hash, role_id)
+                VALUES (:id, :fio, :phone, :login, :password_hash, :role_id)
+                ON CONFLICT (id) DO UPDATE
                 SET fio = EXCLUDED.fio,
                     phone = EXCLUDED.phone,
+                    login = EXCLUDED.login,
                     password_hash = EXCLUDED.password_hash,
                     role_id = EXCLUDED.role_id
                 """
             ),
             {
+                "id": int(row.get("userID")),
                 "fio": fio,
                 "phone": phone,
                 "login": login,
@@ -151,7 +193,7 @@ def import_requests(conn, requests_rows):
     for row in requests_rows:
         start_date = parse_nullable_date(row.get("startDate"))
         equipment_type = (row.get("climateTechType") or "").strip()
-        equipment_model = (row.get("climateTechModel") or "").strip()
+        equipment_model_name = (row.get("climateTechModel") or "").strip()
         problem = (row.get("problemDescryption") or "").strip()
         status_name = (row.get("requestStatus") or "").strip()
         completion_date = parse_nullable_date(row.get("completionDate"))
@@ -160,12 +202,30 @@ def import_requests(conn, requests_rows):
         master_src_id = parse_nullable_int(row.get("masterID"))
         client_src_id = parse_nullable_int(row.get("clientID"))
 
-        if not (start_date and equipment_type and equipment_model and problem and status_name and client_src_id):
+        if not (start_date and equipment_type and equipment_model_name and problem and status_name and client_src_id):
             continue
 
         equipment_type_id = conn.execute(
             text("SELECT id FROM equipment_type WHERE name = :n"),
             {"n": equipment_type},
+        ).scalar_one()
+
+        equipment_model_id = conn.execute(
+            text(
+                """
+                SELECT id
+                FROM equipment_model
+                WHERE equipment_type_id = :equipment_type_id
+                  AND name = :name
+                """
+            ),
+            {"equipment_type_id": equipment_type_id, "name": equipment_model_name},
+        ).scalar_one()
+
+        issue_type_name = normalize_issue_type_name(problem)
+        issue_type_id = conn.execute(
+            text("SELECT id FROM issue_type WHERE name = :n"),
+            {"n": issue_type_name},
         ).scalar_one()
 
         status_id = conn.execute(
@@ -189,19 +249,19 @@ def import_requests(conn, requests_rows):
             text(
                 """
                 INSERT INTO repair_request (
-                    id, start_date, equipment_type_id, equipment_model,
+                    id, start_date, equipment_model_id, issue_type_id,
                     problem_description, status_id, completion_date,
                     repair_parts, master_id, client_id
                 )
                 VALUES (
-                    :id, :start_date, :equipment_type_id, :equipment_model,
+                    :id, :start_date, :equipment_model_id, :issue_type_id,
                     :problem_description, :status_id, :completion_date,
                     :repair_parts, :master_id, :client_id
                 )
                 ON CONFLICT (id) DO UPDATE
                 SET start_date = EXCLUDED.start_date,
-                    equipment_type_id = EXCLUDED.equipment_type_id,
-                    equipment_model = EXCLUDED.equipment_model,
+                    equipment_model_id = EXCLUDED.equipment_model_id,
+                    issue_type_id = EXCLUDED.issue_type_id,
                     problem_description = EXCLUDED.problem_description,
                     status_id = EXCLUDED.status_id,
                     completion_date = EXCLUDED.completion_date,
@@ -213,8 +273,8 @@ def import_requests(conn, requests_rows):
             {
                 "id": int(row.get("requestID")),
                 "start_date": start_date,
-                "equipment_type_id": equipment_type_id,
-                "equipment_model": equipment_model,
+                "equipment_model_id": equipment_model_id,
+                "issue_type_id": issue_type_id,
                 "problem_description": problem,
                 "status_id": status_id,
                 "completion_date": completion_date,
@@ -255,7 +315,6 @@ def import_comments(conn, comments_rows):
 
 
 def main():
-    print("Connecting to DB:", db_url)
     users_path = import_dir / "inputDataUsers.csv"
     requests_path = import_dir / "inputDataRequests.csv"
     comments_path = import_dir / "inputDataComments.csv"
@@ -268,6 +327,8 @@ def main():
         ensure_roles(conn=conn)
         ensure_statuses(conn=conn)
         ensure_equipment_types(conn=conn, requests_rows=requests_rows)
+        ensure_issue_types(conn=conn, requests_rows=requests_rows)
+        ensure_equipment_models(conn=conn, requests_rows=requests_rows)
 
         import_users(conn=conn, users_rows=users_rows)
         import_requests(conn=conn, requests_rows=requests_rows)

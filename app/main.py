@@ -11,13 +11,11 @@ from fastapi import FastAPI
 from fastapi import Form
 from fastapi import HTTPException
 from fastapi import Request
-from fastapi import Response
 from fastapi import status
 from fastapi.responses import HTMLResponse
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -98,16 +96,6 @@ def parse_date(value: str, field_errors: Dict[str, str], field_key: str, field_t
         return None
 
 
-def require_user(request: Request, db: Session) -> models.User:
-    user_id = request.session.get("user_id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Login required")
-    user = db.get(models.User, int(user_id))
-    if not user:
-        raise HTTPException(status_code=401, detail="Login required")
-    return user
-
-
 def current_user_optional(request: Request, db: Session) -> Optional[models.User]:
     user_id = request.session.get("user_id")
     if not user_id:
@@ -115,7 +103,7 @@ def current_user_optional(request: Request, db: Session) -> Optional[models.User
     return db.get(models.User, int(user_id))
 
 
-def role_name(user: models.User) -> str:
+def role_name(user: Optional[models.User]) -> str:
     if not user:
         return ""
     if not user.role:
@@ -124,21 +112,23 @@ def role_name(user: models.User) -> str:
 
 
 def user_can_view_request(user: models.User, req: models.RepairRequest) -> bool:
-    if role_name(user) in (services.ROLE_MANAGER, services.ROLE_OPERATOR):
+    role = role_name(user)
+    if role in (services.ROLE_MANAGER, services.ROLE_OPERATOR):
         return True
-    if role_name(user) == services.ROLE_SPECIALIST:
+    if role == services.ROLE_SPECIALIST:
         return req.master_id == user.id
-    if role_name(user) == services.ROLE_CLIENT:
+    if role == services.ROLE_CLIENT:
         return req.client_id == user.id
     return False
 
 
 def user_can_edit_request(user: models.User, req: models.RepairRequest) -> bool:
-    if role_name(user) in (services.ROLE_MANAGER, services.ROLE_OPERATOR):
+    role = role_name(user)
+    if role in (services.ROLE_MANAGER, services.ROLE_OPERATOR):
         return True
-    if role_name(user) == services.ROLE_SPECIALIST:
+    if role == services.ROLE_SPECIALIST:
         return req.master_id == user.id
-    if role_name(user) == services.ROLE_CLIENT:
+    if role == services.ROLE_CLIENT:
         return req.client_id == user.id and not req.status.is_final
     return False
 
@@ -149,6 +139,34 @@ def user_can_delete_request(user: models.User) -> bool:
 
 def user_can_add_comment(user: models.User, req: models.RepairRequest) -> bool:
     return role_name(user) == services.ROLE_SPECIALIST and req.master_id == user.id
+
+
+def get_or_create_equipment_model(db: Session, equipment_type_id: int, model_name: str) -> models.EquipmentModel:
+    existing = (
+        db.query(models.EquipmentModel)
+        .filter(models.EquipmentModel.equipment_type_id == equipment_type_id)
+        .filter(models.EquipmentModel.name == model_name)
+        .first()
+    )
+    if existing:
+        return existing
+
+    created = models.EquipmentModel(equipment_type_id=equipment_type_id, name=model_name)
+    db.add(created)
+    db.flush()
+    return created
+
+
+def get_or_create_issue_type(db: Session, problem_description: str) -> models.IssueType:
+    name = services.normalize_issue_type_name(problem_description)
+    existing = db.query(models.IssueType).filter(models.IssueType.name == name).first()
+    if existing:
+        return existing
+
+    created = models.IssueType(name=name)
+    db.add(created)
+    db.flush()
+    return created
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -163,11 +181,12 @@ def root(request: Request, db: Session = Depends(get_db)):
 def ui_login(request: Request):
     context = {
         "request": request,
-        "active_page": "",
+        "active_page": "login",
         "messages": build_status_messages(request),
         "form_data": {"login": ""},
         "field_errors": {},
         "user": None,
+        "role": "",
     }
     return templates.TemplateResponse("login.html", context)
 
@@ -199,21 +218,25 @@ def ui_requests_list(
     q: str = "",
     status_id: str = "",
     equipment_type_id: str = "",
+    issue_type_id: str = "",
     db: Session = Depends(get_db),
 ):
     user = current_user_optional(request=request, db=db)
     if not user:
         return RedirectResponse(url="/ui/login?status=login_required", status_code=status.HTTP_303_SEE_OTHER)
 
+    role = role_name(user)
+
     query = (
         db.query(models.RepairRequest)
+        .join(models.EquipmentModel)
         .join(models.EquipmentType)
+        .join(models.IssueType)
         .join(models.RequestStatus)
         .join(models.User, models.RepairRequest.client_id == models.User.id)
         .order_by(models.RepairRequest.id.desc())
     )
 
-    role = role_name(user)
     if role == services.ROLE_CLIENT:
         query = query.filter(models.RepairRequest.client_id == user.id)
     if role == services.ROLE_SPECIALIST:
@@ -232,21 +255,20 @@ def ui_requests_list(
 
     e_id = parse_int(equipment_type_id)
     if e_id:
-        query = query.filter(models.RepairRequest.equipment_type_id == e_id)
+        query = query.filter(models.EquipmentModel.equipment_type_id == e_id)
+
+    it_id = parse_int(issue_type_id)
+    if it_id:
+        query = query.filter(models.RepairRequest.issue_type_id == it_id)
 
     items = query.all()
 
     statuses = db.query(models.RequestStatus).order_by(models.RequestStatus.name).all()
     equipment_types = db.query(models.EquipmentType).order_by(models.EquipmentType.name).all()
+    issue_types = db.query(models.IssueType).order_by(models.IssueType.name).all()
 
     messages = build_status_messages(request)
-    if not items and (q_clean or s_id or e_id):
-        messages = messages + build_status_messages(
-            Request(
-                scope=request.scope,
-                receive=request.receive,
-            )
-        )
+    if not items and (q_clean or s_id or e_id or it_id):
         messages = messages + [{"type": "info", "title": "Нет результатов", "text": "По фильтрам заявки не найдены."}]
 
     context = {
@@ -258,7 +280,8 @@ def ui_requests_list(
         "requests": items,
         "statuses": statuses,
         "equipment_types": equipment_types,
-        "filters": {"q": q_clean, "status_id": s_id, "equipment_type_id": e_id},
+        "issue_types": issue_types,
+        "filters": {"q": q_clean, "status_id": s_id, "equipment_type_id": e_id, "issue_type_id": it_id},
     }
     return templates.TemplateResponse("requests.html", context)
 
@@ -275,6 +298,7 @@ def ui_request_new(request: Request, db: Session = Depends(get_db)):
 
     statuses = db.query(models.RequestStatus).order_by(models.RequestStatus.name).all()
     equipment_types = db.query(models.EquipmentType).order_by(models.EquipmentType.name).all()
+    issue_types = db.query(models.IssueType).order_by(models.IssueType.name).all()
 
     specialists = (
         db.query(models.User)
@@ -296,7 +320,8 @@ def ui_request_new(request: Request, db: Session = Depends(get_db)):
         "id": "",
         "start_date": date.today().isoformat(),
         "equipment_type_id": "",
-        "equipment_model": "",
+        "equipment_model_name": "",
+        "issue_type_id": "",
         "problem_description": "",
         "status_id": "",
         "completion_date": "",
@@ -316,6 +341,7 @@ def ui_request_new(request: Request, db: Session = Depends(get_db)):
         "field_errors": {},
         "statuses": statuses,
         "equipment_types": equipment_types,
+        "issue_types": issue_types,
         "specialists": specialists,
         "clients": clients,
     }
@@ -372,6 +398,7 @@ def ui_request_edit(request_id: int, request: Request, db: Session = Depends(get
 
     statuses = db.query(models.RequestStatus).order_by(models.RequestStatus.name).all()
     equipment_types = db.query(models.EquipmentType).order_by(models.EquipmentType.name).all()
+    issue_types = db.query(models.IssueType).order_by(models.IssueType.name).all()
 
     specialists = (
         db.query(models.User)
@@ -392,8 +419,9 @@ def ui_request_edit(request_id: int, request: Request, db: Session = Depends(get
     form_data = {
         "id": str(req.id),
         "start_date": req.start_date.isoformat(),
-        "equipment_type_id": str(req.equipment_type_id),
-        "equipment_model": req.equipment_model,
+        "equipment_type_id": str(req.equipment_model.equipment_type_id),
+        "equipment_model_name": req.equipment_model.name,
+        "issue_type_id": str(req.issue_type_id),
         "problem_description": req.problem_description,
         "status_id": str(req.status_id),
         "completion_date": req.completion_date.isoformat() if req.completion_date else "",
@@ -413,6 +441,7 @@ def ui_request_edit(request_id: int, request: Request, db: Session = Depends(get
         "field_errors": {},
         "statuses": statuses,
         "equipment_types": equipment_types,
+        "issue_types": issue_types,
         "specialists": specialists,
         "clients": clients,
     }
@@ -425,7 +454,8 @@ def ui_request_save(
     id: str = Form(default=""),
     start_date_raw: str = Form(default="", alias="start_date"),
     equipment_type_id: str = Form(default=""),
-    equipment_model: str = Form(default=""),
+    equipment_model_name: str = Form(default=""),
+    issue_type_id: str = Form(default=""),
     problem_description: str = Form(default=""),
     status_id: str = Form(default=""),
     completion_date_raw: str = Form(default="", alias="completion_date"),
@@ -443,13 +473,14 @@ def ui_request_save(
     field_errors: Dict[str, str] = {}
 
     start_date_val = parse_date(start_date_raw, field_errors, "start_date", "Дата добавления")
-    equip_id = parse_int(equipment_type_id)
-    if not equip_id:
+
+    equip_type_id = parse_int(equipment_type_id)
+    if not equip_type_id:
         field_errors["equipment_type_id"] = "Выберите тип оборудования."
 
-    model_clean = (equipment_model or "").strip()
+    model_clean = (equipment_model_name or "").strip()
     if not model_clean:
-        field_errors["equipment_model"] = "Укажите модель оборудования."
+        field_errors["equipment_model_name"] = "Укажите модель оборудования."
 
     problem_clean = (problem_description or "").strip()
     if not problem_clean:
@@ -472,9 +503,12 @@ def ui_request_save(
     if not client_id_val:
         field_errors["client_id"] = "Укажите заказчика."
 
+    issue_type_val_id = parse_int(issue_type_id)
+
     if field_errors:
         statuses = db.query(models.RequestStatus).order_by(models.RequestStatus.name).all()
         equipment_types = db.query(models.EquipmentType).order_by(models.EquipmentType.name).all()
+        issue_types = db.query(models.IssueType).order_by(models.IssueType.name).all()
 
         specialists = (
             db.query(models.User)
@@ -495,8 +529,9 @@ def ui_request_save(
         form_data = {
             "id": (id or "").strip(),
             "start_date": (start_date_raw or "").strip(),
-            "equipment_type_id": equip_id,
-            "equipment_model": model_clean,
+            "equipment_type_id": equip_type_id,
+            "equipment_model_name": model_clean,
+            "issue_type_id": issue_type_val_id or "",
             "problem_description": problem_clean,
             "status_id": st_id,
             "completion_date": (completion_date_raw or "").strip(),
@@ -509,11 +544,7 @@ def ui_request_save(
             "request": request,
             "active_page": "requests",
             "messages": [
-                {
-                    "type": "error",
-                    "title": "Ошибка ввода данных",
-                    "text": "Исправьте ошибки в форме и повторите попытку.",
-                }
+                {"type": "error", "title": "Ошибка ввода данных", "text": "Исправьте ошибки в форме и повторите попытку."}
             ],
             "user": user,
             "role": role,
@@ -522,6 +553,7 @@ def ui_request_save(
             "field_errors": field_errors,
             "statuses": statuses,
             "equipment_types": equipment_types,
+            "issue_types": issue_types,
             "specialists": specialists,
             "clients": clients,
         }
@@ -530,9 +562,6 @@ def ui_request_save(
     status_obj = db.get(models.RequestStatus, st_id)
     if not status_obj:
         return RedirectResponse(url="/ui/requests?status=forbidden", status_code=status.HTTP_303_SEE_OTHER)
-
-    if status_obj.is_final and completion_date_val is None:
-        completion_date_val = date.today()
 
     if is_edit:
         req_id = parse_int(id)
@@ -550,9 +579,21 @@ def ui_request_save(
             return RedirectResponse(url="/ui/requests?status=forbidden", status_code=status.HTTP_303_SEE_OTHER)
         req = models.RepairRequest()
 
+    equipment_model = get_or_create_equipment_model(db=db, equipment_type_id=equip_type_id, model_name=model_clean)
+
+    if issue_type_val_id:
+        issue_type_obj = db.get(models.IssueType, issue_type_val_id)
+        if not issue_type_obj:
+            issue_type_obj = get_or_create_issue_type(db=db, problem_description=problem_clean)
+    else:
+        issue_type_obj = get_or_create_issue_type(db=db, problem_description=problem_clean)
+
+    if status_obj.is_final and completion_date_val is None:
+        completion_date_val = date.today()
+
     req.start_date = start_date_val
-    req.equipment_type_id = equip_id
-    req.equipment_model = model_clean
+    req.equipment_model_id = equipment_model.id
+    req.issue_type_id = issue_type_obj.id
     req.problem_description = problem_clean
     req.status_id = st_id
     req.completion_date = completion_date_val
@@ -564,7 +605,7 @@ def ui_request_save(
 
     try:
         db.commit()
-    except IntegrityError:
+    except Exception:
         db.rollback()
         return RedirectResponse(url="/ui/requests?status=forbidden", status_code=status.HTTP_303_SEE_OTHER)
 

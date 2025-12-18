@@ -18,10 +18,13 @@
         <div class="kv-val">{{ req.start_date }}</div>
 
         <div class="kv-key">Оборудование</div>
-        <div class="kv-val">{{ req.equipment_type.name }}</div>
+        <div class="kv-val">{{ req.equipment_model.equipment_type.name }}</div>
 
         <div class="kv-key">Модель</div>
-        <div class="kv-val">{{ req.equipment_model }}</div>
+        <div class="kv-val">{{ req.equipment_model.name }}</div>
+
+        <div class="kv-key">Тип неисправности</div>
+        <div class="kv-val">{{ req.issue_type.name }}</div>
 
         <div class="kv-key">Описание проблемы</div>
         <div class="kv-val">{{ req.problem_description }}</div>

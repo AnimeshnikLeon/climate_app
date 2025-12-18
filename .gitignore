@@ -2,4 +2,9 @@
 __pycache__/
 .pytest_cache/
 *.pyc
+
+backups/*.dump
+backups/*.sql
+backups/*.tar
+
 ERD.pgerd

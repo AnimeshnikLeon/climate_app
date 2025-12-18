@@ -41,11 +41,28 @@ class EquipmentType_out(BaseModel):
         from_attributes = True
 
 
+class EquipmentModel_out(BaseModel):
+    id: int
+    name: str
+    equipment_type: EquipmentType_out
+
+    class Config:
+        from_attributes = True
+
+
+class IssueType_out(BaseModel):
+    id: int
+    name: str
+
+    class Config:
+        from_attributes = True
+
+
 class RepairRequest_out(BaseModel):
     id: int
     start_date: date
-    equipment_type: EquipmentType_out
-    equipment_model: str
+    equipment_model: EquipmentModel_out
+    issue_type: IssueType_out
     problem_description: str
     status: RequestStatus_out
     completion_date: Optional[date]
@@ -73,5 +90,5 @@ class Statistics_out(BaseModel):
     total_requests: int
     completed_requests: int
     average_repair_time_days: Optional[float]
-    issues_by_equipment_type: dict[str, int]
-    issues_by_problem_description: dict[str, int]
+    by_equipment_type: dict[str, int]
+    by_issue_type: dict[str, int]

@@ -27,7 +27,7 @@ class request_row:
     completion_date: Optional[date]
     status_is_final: bool
     equipment_type: str
-    problem_description: str
+    issue_type: str
 
 
 def hash_password(password: str, iterations: int = DEFAULT_PBKDF2_ITERATIONS) -> str:
@@ -100,22 +100,31 @@ def ensure_default_secret_key() -> str:
     return secrets.token_urlsafe(32)
 
 
+def normalize_issue_type_name(problem_description: str) -> str:
+    text = (problem_description or "").strip()
+    if not text:
+        return "Не указано"
+    if len(text) <= 255:
+        return text
+    return text[:252].rstrip() + "..."
+
+
 def calculate_statistics_from_rows(rows: Iterable[request_row]) -> dict:
     total_requests = 0
     completed_requests = 0
 
     durations_days: list[int] = []
-    issues_by_equipment_type: dict[str, int] = {}
-    issues_by_problem_description: dict[str, int] = {}
+    by_equipment_type: dict[str, int] = {}
+    by_issue_type: dict[str, int] = {}
 
     for r in rows:
         total_requests += 1
 
         equip = (r.equipment_type or "").strip() or "Не указано"
-        issues_by_equipment_type[equip] = issues_by_equipment_type.get(equip, 0) + 1
+        by_equipment_type[equip] = by_equipment_type.get(equip, 0) + 1
 
-        prob = (r.problem_description or "").strip() or "Не указано"
-        issues_by_problem_description[prob] = issues_by_problem_description.get(prob, 0) + 1
+        issue = (r.issue_type or "").strip() or "Не указано"
+        by_issue_type[issue] = by_issue_type.get(issue, 0) + 1
 
         if r.status_is_final and r.completion_date is not None:
             completed_requests += 1
@@ -134,17 +143,17 @@ def calculate_statistics_from_rows(rows: Iterable[request_row]) -> dict:
         "total_requests": total_requests,
         "completed_requests": completed_requests,
         "average_repair_time_days": average_repair_time_days,
-        "issues_by_equipment_type": dict(sorted(issues_by_equipment_type.items(), key=lambda x: (-x[1], x[0]))),
-        "issues_by_problem_description": dict(
-            sorted(issues_by_problem_description.items(), key=lambda x: (-x[1], x[0]))
-        ),
+        "by_equipment_type": dict(sorted(by_equipment_type.items(), key=lambda x: (-x[1], x[0]))),
+        "by_issue_type": dict(sorted(by_issue_type.items(), key=lambda x: (-x[1], x[0]))),
     }
 
 
 def calculate_statistics(db: Session) -> dict:
     requests = (
         db.query(models.RepairRequest)
-        .join(models.EquipmentType, models.RepairRequest.equipment_type_id == models.EquipmentType.id)
+        .join(models.EquipmentModel, models.RepairRequest.equipment_model_id == models.EquipmentModel.id)
+        .join(models.EquipmentType, models.EquipmentModel.equipment_type_id == models.EquipmentType.id)
+        .join(models.IssueType, models.RepairRequest.issue_type_id == models.IssueType.id)
         .join(models.RequestStatus, models.RepairRequest.status_id == models.RequestStatus.id)
         .all()
     )
@@ -156,8 +165,8 @@ def calculate_statistics(db: Session) -> dict:
                 start_date=req.start_date,
                 completion_date=req.completion_date,
                 status_is_final=bool(req.status.is_final),
-                equipment_type=req.equipment_type.name,
-                problem_description=req.problem_description,
+                equipment_type=req.equipment_model.equipment_type.name,
+                issue_type=req.issue_type.name,
             )
         )
 

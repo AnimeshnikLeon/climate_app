@@ -35,7 +35,7 @@
         </tr>
         </thead>
         <tbody>
-        {% for k, v in stats.issues_by_equipment_type.items() %}
+        {% for k, v in stats.by_equipment_type.items() %}
         <tr>
             <td>{{ k }}</td>
             <td class="cell-centered">{{ v }}</td>
@@ -50,16 +50,16 @@
 </section>
 
 <section class="form-card">
-    <h3 style="margin-top: 0;">Статистика по типам неисправностей (по тексту проблемы)</h3>
+    <h3 style="margin-top: 0;">Статистика по типам неисправностей</h3>
     <table class="data-table" style="margin-top: 10px;">
         <thead>
         <tr>
-            <th>Неисправность</th>
+            <th>Тип неисправности</th>
             <th class="cell-centered">Количество</th>
         </tr>
         </thead>
         <tbody>
-        {% for k, v in stats.issues_by_problem_description.items() %}
+        {% for k, v in stats.by_issue_type.items() %}
         <tr>
             <td>{{ k }}</td>
             <td class="cell-centered">{{ v }}</td>

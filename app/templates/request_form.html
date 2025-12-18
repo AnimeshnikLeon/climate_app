@@ -34,13 +34,27 @@
         {% endif %}
     </div>
 
-    <div class="form-row{% if field_errors.equipment_model %} has-error{% endif %}">
-        <label for="equipment_model">Модель <span class="required">*</span></label>
-        <input id="equipment_model" name="equipment_model" type="text" maxlength="200" required
-               value="{{ form_data.equipment_model or '' }}">
-        {% if field_errors.equipment_model %}
-        <div class="field-error">{{ field_errors.equipment_model }}</div>
+    <div class="form-row{% if field_errors.equipment_model_name %} has-error{% endif %}">
+        <label for="equipment_model_name">Модель <span class="required">*</span></label>
+        <input id="equipment_model_name" name="equipment_model_name" type="text" maxlength="200" required
+               value="{{ form_data.equipment_model_name or '' }}">
+        {% if field_errors.equipment_model_name %}
+        <div class="field-error">{{ field_errors.equipment_model_name }}</div>
         {% endif %}
+        <div class="field-help">Модель сохраняется как справочник (нормализация), можно вводить текстом.</div>
+    </div>
+
+    <div class="form-row">
+        <label for="issue_type_id">Тип неисправности</label>
+        <select id="issue_type_id" name="issue_type_id">
+            <option value="">— авто (по тексту проблемы) —</option>
+            {% for it in issue_types %}
+            <option value="{{ it.id }}" {% if form_data.issue_type_id == it.id %}selected{% endif %}>
+                {{ it.name }}
+            </option>
+            {% endfor %}
+        </select>
+        <div class="field-help">Если не выбрать, тип неисправности будет создан/подобран автоматически из текста «Описание проблемы».</div>
     </div>
 
     <div class="form-row{% if field_errors.problem_description %} has-error{% endif %}">

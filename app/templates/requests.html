@@ -38,6 +38,16 @@
         </div>
 
         <div class="form-row" style="margin: 0;">
+            <label for="issue_type_id">Тип неисправности</label>
+            <select id="issue_type_id" name="issue_type_id">
+                <option value="">— любой —</option>
+                {% for it in issue_types %}
+                <option value="{{ it.id }}" {% if filters.issue_type_id == it.id %}selected{% endif %}>{{ it.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-row" style="margin: 0;">
             <button type="submit" class="btn btn-secondary">Применить</button>
         </div>
     </div>
@@ -50,7 +60,7 @@
         <th>Дата</th>
         <th>Оборудование</th>
         <th>Модель</th>
-        <th>Проблема</th>
+        <th>Тип неисправности</th>
         <th>Статус</th>
         <th>Исполнитель</th>
         <th>Заказчик</th>
@@ -62,9 +72,9 @@
     <tr>
         <td class="cell-centered">{{ r.id }}</td>
         <td>{{ r.start_date }}</td>
-        <td>{{ r.equipment_type.name }}</td>
-        <td>{{ r.equipment_model }}</td>
-        <td>{{ r.problem_description }}</td>
+        <td>{{ r.equipment_model.equipment_type.name }}</td>
+        <td>{{ r.equipment_model.name }}</td>
+        <td>{{ r.issue_type.name }}</td>
         <td>{{ r.status.name }}</td>
         <td>{% if r.master %}{{ r.master.fio }}{% else %}—{% endif %}</td>
         <td>{{ r.client.fio }}</td>

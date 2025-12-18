@@ -6,6 +6,7 @@ from sqlalchemy import ForeignKey
 from sqlalchemy import Integer
 from sqlalchemy import String
 from sqlalchemy import Text
+from sqlalchemy import UniqueConstraint
 from sqlalchemy import func
 from sqlalchemy.orm import relationship
 
@@ -33,6 +34,31 @@ class EquipmentType(base):
     id = Column(Integer, primary_key=True)
     name = Column(String(100), unique=True, nullable=False)
 
+    models = relationship("EquipmentModel", back_populates="equipment_type")
+
+
+class EquipmentModel(base):
+    __tablename__ = "equipment_model"
+    __table_args__ = (
+        UniqueConstraint("equipment_type_id", "name", name="uq_equipment_model_type_name"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    equipment_type_id = Column(Integer, ForeignKey("equipment_type.id"), nullable=False)
+    name = Column(String(200), nullable=False)
+
+    equipment_type = relationship("EquipmentType", back_populates="models")
+    requests = relationship("RepairRequest", back_populates="equipment_model")
+
+
+class IssueType(base):
+    __tablename__ = "issue_type"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(255), unique=True, nullable=False)
+
+    requests = relationship("RepairRequest", back_populates="issue_type")
+
 
 class User(base):
     __tablename__ = "app_user"
@@ -56,7 +82,6 @@ class User(base):
         back_populates="master",
         foreign_keys="RepairRequest.master_id",
     )
-
     comments = relationship(
         "RequestComment",
         back_populates="master",
@@ -70,8 +95,8 @@ class RepairRequest(base):
     id = Column(Integer, primary_key=True)
     start_date = Column(Date, nullable=False)
 
-    equipment_type_id = Column(Integer, ForeignKey("equipment_type.id"), nullable=False)
-    equipment_model = Column(String(200), nullable=False)
+    equipment_model_id = Column(Integer, ForeignKey("equipment_model.id"), nullable=False)
+    issue_type_id = Column(Integer, ForeignKey("issue_type.id"), nullable=False)
 
     problem_description = Column(Text, nullable=False)
 
@@ -91,7 +116,8 @@ class RepairRequest(base):
         nullable=False,
     )
 
-    equipment_type = relationship("EquipmentType")
+    equipment_model = relationship("EquipmentModel", back_populates="requests")
+    issue_type = relationship("IssueType", back_populates="requests")
     status = relationship("RequestStatus")
 
     master = relationship("User", foreign_keys=[master_id], back_populates="master_requests")

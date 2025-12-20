@@ -80,8 +80,10 @@
         <td>{{ r.client.fio }}</td>
         <td class="table-actions">
             <a href="/ui/requests/{{ r.id }}" class="link-action">Открыть</a>
+            {% if can_edit_request(user, r) %}
             <a href="/ui/requests/{{ r.id }}/edit" class="link-action">Редактировать</a>
-            {% if role in ["Оператор", "Менеджер"] %}
+            {% endif %}
+            {% if can_delete_request(user) %}
             <form method="post"
                   action="/ui/requests/{{ r.id }}/delete"
                   class="inline-form"

@@ -35,6 +35,15 @@
         <div class="kv-key">Дата завершения</div>
         <div class="kv-val">{% if req.completion_date %}{{ req.completion_date }}{% else %}—{% endif %}</div>
 
+        <div class="kv-key">Плановый срок выполнения</div>
+        <div class="kv-val">
+            {% if req.due_date %}
+                {{ req.due_date }}
+            {% else %}
+                —
+            {% endif %}
+        </div>
+
         <div class="kv-key">Комплектующие</div>
         <div class="kv-val">{% if req.repair_parts %}{{ req.repair_parts }}{% else %}—{% endif %}</div>
 
@@ -59,7 +68,7 @@
     {% endif %}
 </section>
 
-<section class="form-card">
+<section class="form-card" style="margin-bottom: 16px;">
     <h3 style="margin-top: 0;">Комментарии специалиста</h3>
 
     {% for c in comments %}
@@ -85,5 +94,15 @@
         </div>
     </form>
     {% endif %}
+</section>
+
+<section class="form-card">
+    <h3 style="margin-top: 0;">Оценка качества работы</h3>
+    <p class="field-help">
+        Отсканируйте QR‑код, чтобы перейти к форме оценки работы сервисной службы.
+    </p>
+    <img src="/ui/requests/{{ req.id }}/qr"
+         alt="QR-код для оценки качества работы"
+         style="width: 200px; height: 200px;">
 </section>
 {% endblock %}

@@ -66,6 +66,7 @@ class RepairRequest_out(BaseModel):
     problem_description: str
     status: RequestStatus_out
     completion_date: Optional[date]
+    due_date: Optional[date]
     repair_parts: Optional[str]
     master: Optional[User_out]
     client: User_out

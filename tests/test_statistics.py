@@ -1,26 +1,26 @@
 from datetime import date
 
+from app.services import RequestRow
 from app.services import calculate_statistics_from_rows
-from app.services import request_row
 
 
 def test_statistics_average_repair_time_days():
     rows = [
-        request_row(
+        RequestRow(
             start_date=date(2023, 1, 1),
             completion_date=date(2023, 1, 6),
             status_is_final=True,
             equipment_type="Кондиционер",
             issue_type="Не охлаждает",
         ),
-        request_row(
+        RequestRow(
             start_date=date(2023, 1, 10),
             completion_date=date(2023, 1, 11),
             status_is_final=True,
             equipment_type="Кондиционер",
             issue_type="Шумит",
         ),
-        request_row(
+        RequestRow(
             start_date=date(2023, 2, 1),
             completion_date=None,
             status_is_final=False,

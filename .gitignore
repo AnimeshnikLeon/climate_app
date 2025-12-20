@@ -8,3 +8,4 @@ backups/*.sql
 backups/*.tar
 
 ERD.pgerd
+ai_context_*

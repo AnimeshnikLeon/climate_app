@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS repair_request (
 
     status_id           INTEGER NOT NULL REFERENCES request_status(id),
     completion_date     DATE NULL,
+    due_date            DATE NULL,
 
     repair_parts        TEXT NULL,
 
@@ -58,7 +59,9 @@ CREATE TABLE IF NOT EXISTS repair_request (
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     CONSTRAINT ck_repair_request_completion_date
-        CHECK (completion_date IS NULL OR completion_date >= start_date)
+        CHECK (completion_date IS NULL OR completion_date >= start_date),
+    CONSTRAINT ck_repair_request_due_date
+        CHECK (due_date IS NULL OR due_date >= start_date)
 );
 
 CREATE INDEX IF NOT EXISTS ix_repair_request_status ON repair_request(status_id);

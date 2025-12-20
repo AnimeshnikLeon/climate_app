@@ -102,6 +102,7 @@ class RepairRequest(base):
 
     status_id = Column(Integer, ForeignKey("request_status.id"), nullable=False)
     completion_date = Column(Date, nullable=True)
+    due_date = Column(Date, nullable=True)
 
     repair_parts = Column(Text, nullable=True)
 

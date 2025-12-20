@@ -52,7 +52,13 @@ def read_csv(path: Path):
 
 
 def ensure_roles(conn):
-    roles = ["Менеджер", "Специалист", "Оператор", "Заказчик"]
+    roles = [
+        "Менеджер",
+        "Специалист",
+        "Оператор",
+        "Заказчик",
+        "Менеджер по качеству",
+    ]
     for r in roles:
         conn.execute(
             text(
@@ -314,6 +320,29 @@ def import_comments(conn, comments_rows):
         )
 
 
+def sync_sequences(conn):
+    """
+    Синхронизирует последовательности SERIAL с максимальными значениями id
+    для таблиц, в которые данные загружаются с явно заданными идентификаторами.
+    Это предотвращает ошибки duplicate key при дальнейшем INSERT без явного id.
+    """
+    tables = [
+        "app_user",
+        "repair_request",
+        "request_comment",
+    ]
+
+    for table in tables:
+        sql = f"""
+            SELECT setval(
+                pg_get_serial_sequence('{table}', 'id'),
+                COALESCE((SELECT MAX(id) FROM {table}), 0),
+                true
+            )
+        """
+        conn.execute(text(sql))
+
+
 def main():
     users_path = import_dir / "inputDataUsers.csv"
     requests_path = import_dir / "inputDataRequests.csv"
@@ -333,6 +362,8 @@ def main():
         import_users(conn=conn, users_rows=users_rows)
         import_requests(conn=conn, requests_rows=requests_rows)
         import_comments(conn=conn, comments_rows=comments_rows)
+
+        sync_sequences(conn=conn)
 
     print("Import finished.")
 

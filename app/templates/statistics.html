@@ -49,7 +49,7 @@
     </table>
 </section>
 
-<section class="form-card">
+<section class="form-card" style="margin-bottom: 16px;">
     <h3 style="margin-top: 0;">Статистика по типам неисправностей</h3>
     <table class="data-table" style="margin-top: 10px;">
         <thead>
@@ -67,6 +67,30 @@
         {% else %}
         <tr>
             <td colspan="2" class="table-empty">Нет данных.</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+<section class="form-card">
+    <h3 style="margin-top: 0;">Нагрузка специалистов (активные заявки)</h3>
+    <table class="data-table" style="margin-top: 10px;">
+        <thead>
+        <tr>
+            <th>Специалист</th>
+            <th class="cell-centered">Активных заявок</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for item in stats.specialist_load %}
+        <tr>
+            <td>{{ item.master_fio }}</td>
+            <td class="cell-centered">{{ item.active_requests }}</td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="2" class="table-empty">Нет активных заявок.</td>
         </tr>
         {% endfor %}
         </tbody>
